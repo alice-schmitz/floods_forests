@@ -3,46 +3,66 @@ import pandas as pd
 import time
 import functions
 import geobr
+from shapely.geometry import box
+import numpy as np
 
 #%% Set years to query
 years = range(2021, 2022)
-
-#%% Get list of municipalities
 munis = geobr.read_municipality(year=2020)
+
 muni_codes = munis['code_muni'].unique()
 # For now, subset to a few munis
-muni_codes = muni_codes[:20] 
+muni_codes = muni_codes[:20]
+len(muni_codes)
 
-#%% Build panel dataframe
+#%% Get list of municipalities
+import pandas as pd
+import numpy as np
 
-results = []
+def build_flood_dataframe(muni_codes, start_year, end_year, start_month, end_month):
+    records = []
 
-for year in years:
-    for muni_code in muni_codes:
+    for code in muni_codes:
+        print(f"\n Processing municipality {code}")
+
         try:
-            print(f"Processing {muni_code} for {year}...")
+            xx_clipped = functions.query_gfm(code, start_year, end_year, start_month, end_month)
 
-            # Query and process
-            xx = functions.query_gfm(muni_code, year, year, 1, 12)
-            flood_extent = functions.get_max_flood_extent(xx)
-            flooded_pixels = int((flood_extent == 1).sum().item())
+            if xx_clipped is None:
+                continue
 
-            results.append({
-                "code_muni": muni_code,
-                "year": year,
-                "flooded_pixels": flooded_pixels
+            flood_map = functions.get_max_flood_extent(xx_clipped)
+
+            valid_pixels = np.count_nonzero((flood_map.values != 255))
+            flooded_pixels = np.count_nonzero((flood_map.values == 1))
+
+            flood_ratio = flooded_pixels / valid_pixels if valid_pixels > 0 else np.nan
+
+            records.append({
+                "muni_code": code,
+                "start_year": start_year,
+                "end_year": end_year,
+                "start_month": start_month,
+                "end_month": end_month,
+                "flooded_pixels": flooded_pixels,
+                "valid_pixels": valid_pixels,
+                "flood_ratio": flood_ratio
             })
 
         except Exception as e:
-            print(f"Skipping {muni_code}, {year} due to error: {e}")
+            print(f"Error for muni {code}: {e}")
             continue
 
-        time.sleep(1)
+    df = pd.DataFrame(records)
+    return df
 
-    # Convert to dataframe and append to disk after each year
-    df_year = pd.DataFrame(results)
-    df_year.to_csv("flooded_pixels_panel.csv", mode="a", header=(year == years[0]), index=False)
-    results = []  # reset for next year
+flood_df = build_flood_dataframe(
+    muni_codes=muni_codes,
+    start_year=2022,
+    end_year=2022,
+    start_month=9,
+    end_month=9
+)
 
-
-
+flood_df
+# %%
